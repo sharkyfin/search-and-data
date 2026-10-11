@@ -29,7 +29,7 @@ inline void RunIndexDemo() {
         SourceKind::SortedDictionary, SourceKind::TreeDictionary, SourceKind::HashTable};
     const char* const sourceNames[]{"ArraySequence", "BinaryTreeSet", "SortedArraySequence",
         "SortedDictionary", "TreeDictionary", "HashTable"};
-    const IndexKind dictionaries[]{IndexKind::Sorted, IndexKind::Tree, IndexKind::Hash};
+    using Positions = ArraySequence<RecordId>;
     std::cout << "\nКаждый источник создаётся из исходных записей. Индекс копирует его в снимок.\n";
     for (int i = 0; i < 6; ++i) {
         auto source = MakePersonSource(people, sources[i]);
@@ -37,8 +37,8 @@ inline void RunIndexDemo() {
         if (i >= 3) std::cout << " (ID -> Person)";
         std::cout << "\nПорядок записей и позиции в снимке:\n";
         PrintRecords(*source);
-        for (IndexKind kind : dictionaries) {
-            Index<Person, std::string> index(*source, kind, ByLastName);
+        const auto showIndex = [&](IndexKind kind, auto dictionary) {
+            Index<Person, std::string> index(*source, Move(dictionary), ByLastName);
             std::cout << "  Индекс: " << GetIndexName(kind) << " (фамилия -> позиции)\n";
             auto entries = index.GetEntriesEnumerator();
             while (entries->MoveNext()) {
@@ -56,7 +56,10 @@ inline void RunIndexDemo() {
                 std::cout << ' ' << index.GetRecords().Get(matches.Get(j).position).id;
             }
             std::cout << '\n';
-        }
+        };
+        showIndex(IndexKind::Sorted, MakeUnique<SortedDictionary<std::string, Positions>>());
+        showIndex(IndexKind::Tree, MakeUnique<TreeDictionary<std::string, Positions>>());
+        showIndex(IndexKind::Hash, MakeUnique<HashTable<std::string, Positions>>());
     }
 
     const auto benchmarkPeople = GeneratePeople(10000, 42);

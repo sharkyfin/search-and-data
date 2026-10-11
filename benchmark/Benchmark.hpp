@@ -10,6 +10,9 @@
 #include "sequences/DynamicArray.hpp"
 #include "sequences/ArraySequence.hpp"
 #include "indexing/Index.hpp"
+#include "dictionaries/SortedDictionary.hpp"
+#include "dictionaries/TreeDictionary.hpp"
+#include "dictionaries/HashTable.hpp"
 #include "indexing/IndexTypes.hpp"
 #include "benchmark/Measurement.hpp"
 
@@ -26,7 +29,7 @@ ArraySequence<Measurement> CompareIndexes(
     });
 
     const char* const orders[]{"Ascending", "Descending", "Random"};
-    const IndexKind kinds[]{IndexKind::Sorted, IndexKind::Tree, IndexKind::Hash};
+    using Positions = ArraySequence<RecordId>;
     ArraySequence<Measurement> measurements;
 
     for (int order = 0; order < 3; ++order) {
@@ -47,14 +50,14 @@ ArraySequence<Measurement> CompareIndexes(
                 ? missingKey : select(records.Get((query * 17) % records.GetCount()));
             queries.Append(key);
         }
-        for (IndexKind kind : kinds) {
+        const auto measure = [&](IndexKind kind, auto makeDictionary) {
             Measurement row{};
             row.kind = kind;
             row.order = orders[order];
             row.records = records.GetCount();
             row.queries = queries.GetCount();
             const auto buildStart = std::chrono::steady_clock::now();
-            Index<Record, Key> index(records, kind, select);
+            Index<Record, Key> index(records, makeDictionary(), select);
             const auto buildEnd = std::chrono::steady_clock::now();
             row.keys = index.GetKeyCount();
             row.buildMilliseconds = std::chrono::duration<double, std::milli>(buildEnd - buildStart).count();
@@ -67,7 +70,10 @@ ArraySequence<Measurement> CompareIndexes(
             const auto queryEnd = std::chrono::steady_clock::now();
             row.queryMilliseconds = std::chrono::duration<double, std::milli>(queryEnd - queryStart).count();
             measurements.Append(row);
-        }
+        };
+        measure(IndexKind::Sorted, [] { return MakeUnique<SortedDictionary<Key, Positions>>(); });
+        measure(IndexKind::Tree, [] { return MakeUnique<TreeDictionary<Key, Positions>>(); });
+        measure(IndexKind::Hash, [] { return MakeUnique<HashTable<Key, Positions>>(); });
     }
     return measurements;
 }

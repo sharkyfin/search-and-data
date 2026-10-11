@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 #include "benchmark/Benchmark.hpp"
 #include "benchmark/CsvExporter.hpp"
@@ -262,37 +263,46 @@ TEST(Index, SourcesAndKeys) {
     people.Append(Person{2, "Alex", "Ivanov", 2004});
     const SourceKind sources[]{SourceKind::Array, SourceKind::TreeSet, SourceKind::Sorted,
         SourceKind::SortedDictionary, SourceKind::TreeDictionary, SourceKind::HashTable};
-    const IndexKind kinds[]{IndexKind::Sorted, IndexKind::Tree, IndexKind::Hash};
+    using Positions = ArraySequence<RecordId>;
     for (SourceKind source : sources) {
-        for (IndexKind kind : kinds) {
+        auto records = MakePersonSource(people, source);
+        const auto check = [&](IndexKind kind, auto makeNames, auto makeYears) {
             SCOPED_TRACE(testing::Message() << "source=" << static_cast<int>(source)
                                             << ", dictionary=" << static_cast<int>(kind));
-            const auto names = MakePersonIndex<std::string>(people, source, kind, ByLastName);
-            const auto years = MakePersonIndex<int>(people, source, kind, ByBirthYear);
+            Index<Person, std::string> names(*records, makeNames(), ByLastName);
+            Index<Person, int> years(*records, makeYears(), ByBirthYear);
             const auto byId = [](const Person& person) { return person.id; };
-            const auto ids = MakePersonIndex<int>(people, source, kind, byId);
-            ASSERT_TRUE(names->GetKeyCount() == 2 && years->GetKeyCount() == 2 && ids->GetKeyCount() == 3);
-            ExpectIndex(*names, std::string("Ivanov"), 2, ByLastName);
-            ExpectIndex(*years, 2004, 2, ByBirthYear);
-            ExpectIndex(*ids, 2, 1, byId);
-            ASSERT_TRUE(names->FindAll("missing").IsEmpty() && years->FindAll(1900).IsEmpty() && ids->FindAll(99).IsEmpty());
-            auto entries = names->GetEntriesEnumerator();
+            Index<Person, int> ids(*records, makeYears(), byId);
+            ASSERT_TRUE(names.GetKeyCount() == 2 && years.GetKeyCount() == 2 && ids.GetKeyCount() == 3);
+            ExpectIndex(names, std::string("Ivanov"), 2, ByLastName);
+            ExpectIndex(years, 2004, 2, ByBirthYear);
+            ExpectIndex(ids, 2, 1, byId);
+            ASSERT_TRUE(names.FindAll("missing").IsEmpty() && years.FindAll(1900).IsEmpty() && ids.FindAll(99).IsEmpty());
+            auto entries = names.GetEntriesEnumerator();
             int positions = 0;
             while (entries->MoveNext()) {
                 const auto& entry = entries->CurrentRef();
                 for (int i = 0; i < entry.value.GetCount(); ++i) {
-                    ASSERT_TRUE(names->GetRecords().Get(entry.value.Get(i).position).lastName == entry.key);
+                    ASSERT_TRUE(names.GetRecords().Get(entry.value.Get(i).position).lastName == entry.key);
                     ++positions;
                 }
             }
             EXPECT_EQ(positions, people.GetCount());
             ArraySequence<Person> empty;
-            const auto emptyIndex = MakePersonIndex<int>(empty, source, kind, ByBirthYear);
-            ASSERT_TRUE(emptyIndex->GetKeyCount() == 0 && emptyIndex->FindAll(2000).IsEmpty());
+            auto emptySource = MakePersonSource(empty, source);
+            Index<Person, int> emptyIndex(*emptySource, makeYears(), ByBirthYear);
+            ASSERT_TRUE(emptyIndex.GetKeyCount() == 0 && emptyIndex.FindAll(2000).IsEmpty());
             EXPECT_EQ(people.GetFirst().id, 3);
-        }
+        };
+        check(IndexKind::Sorted, [] { return MakeUnique<SortedDictionary<std::string, Positions>>(); },
+              [] { return MakeUnique<SortedDictionary<int, Positions>>(); });
+        check(IndexKind::Tree, [] { return MakeUnique<TreeDictionary<std::string, Positions>>(); },
+              [] { return MakeUnique<TreeDictionary<int, Positions>>(); });
+        check(IndexKind::Hash, [] { return MakeUnique<HashTable<std::string, Positions>>(); },
+              [] { return MakeUnique<HashTable<int, Positions>>(); });
     }
-    Index<Person, std::string> snapshot(people, IndexKind::Tree, ByLastName);
+    Index<Person, std::string> snapshot(people,
+        MakeUnique<TreeDictionary<std::string, Positions>>(), ByLastName);
     people.GetMutable(0).lastName = "Changed";
     people.Clear();
     ASSERT_TRUE(snapshot.GetRecords().GetCount() == 3 && snapshot.FindAll("Ivanov").GetCount() == 2);
@@ -300,22 +310,65 @@ TEST(Index, SourcesAndKeys) {
 
 TEST(Index, EmptyAndDuplicateKeys) {
     ArraySequence<Person> empty;
-    const IndexKind kinds[]{IndexKind::Sorted, IndexKind::Tree, IndexKind::Hash};
-    for (IndexKind kind : kinds) {
-        Index<Person, int> index(empty, kind, ByBirthYear);
+    using Positions = ArraySequence<RecordId>;
+    const auto check = [&](auto makeDictionary) {
+        Index<Person, int> index(empty, makeDictionary(), ByBirthYear);
         ASSERT_TRUE(index.GetKeyCount() == 0 && index.FindAll(2000).IsEmpty());
         auto equal = MakeTestSequence<int>(7, 7, 7);
-        Index<int, int> duplicates(equal, kind, [](int value) { return value; });
+        Index<int, int> duplicates(equal, makeDictionary(), [](int value) { return value; });
         ExpectEnumeration(duplicates.FindAll(7), MakeTestSequence<RecordId>(RecordId{0}, RecordId{1}, RecordId{2}));
-    }
+    };
+    check([] { return MakeUnique<SortedDictionary<int, Positions>>(); });
+    check([] { return MakeUnique<TreeDictionary<int, Positions>>(); });
+    check([] { return MakeUnique<HashTable<int, Positions>>(); });
     ArraySequence<Person> people;
     people.Append(Person{1, "A", "B", 2000});
     people.Append(Person{1, "C", "D", 2001});
     const SourceKind uniqueSources[]{SourceKind::TreeSet, SourceKind::SortedDictionary,
         SourceKind::TreeDictionary, SourceKind::HashTable};
     for (SourceKind source : uniqueSources) {
-        EXPECT_THROW(MakePersonIndex<int>(people, source, IndexKind::Hash, ByBirthYear), std::invalid_argument);
+        EXPECT_THROW(MakePersonSource(people, source), std::invalid_argument);
     }
+}
+
+TEST(Index, CompositeKeys) {
+    using Key = std::pair<std::string, int>;
+    using Positions = ArraySequence<RecordId>;
+    ArraySequence<Person> people;
+    people.Append(Person{1, "A", "Ivanov", 2004});
+    people.Append(Person{2, "B", "Ivanov", 2003});
+    people.Append(Person{3, "C", "Petrov", 2004});
+    people.Append(Person{4, "D", "Ivanov", 2004});
+    const auto select = [](const Person& person) {
+        return std::make_pair(person.lastName, person.birthYear);
+    };
+    const auto check = [&](auto dictionary) {
+        Index<Person, Key> index(people, Move(dictionary), select);
+        EXPECT_EQ(index.GetKeyCount(), 3);
+        ExpectIndex(index, Key{"Ivanov", 2004}, 2, select);
+        ExpectIndex(index, Key{"Ivanov", 2003}, 1, select);
+        ExpectIndex(index, Key{"Petrov", 2004}, 1, select);
+        EXPECT_TRUE(index.FindAll(Key{"Ivanov", 1999}).IsEmpty());
+        EXPECT_TRUE(index.FindAll(Key{"Missing", 2004}).IsEmpty());
+    };
+    check(MakeUnique<SortedDictionary<Key, Positions>>());
+    check(MakeUnique<TreeDictionary<Key, Positions>>());
+    struct ConstantHash { int operator()(const Key&) const { return 0; } };
+    check(MakeUnique<HashTable<Key, Positions, ConstantHash>>());
+}
+
+TEST(Index, DictionaryOwnership) {
+    using Positions = ArraySequence<RecordId>;
+    const auto people = MakeTestSequence<Person>(Person{1, "A", "B", 2004});
+    auto dictionary = MakeUnique<SortedDictionary<int, Positions>>();
+    const auto* original = dictionary.get();
+    Index<Person, int> index(people, Move(dictionary), ByBirthYear);
+    EXPECT_FALSE(dictionary);
+    EXPECT_EQ(original->Get(2004).Get(0).position, 0);
+    EXPECT_THROW((Index<Person, int>(people, nullptr, ByBirthYear)), std::invalid_argument);
+    auto populated = MakeUnique<SortedDictionary<int, Positions>>();
+    populated->Add(2004, MakeTestSequence<RecordId>(RecordId{99}));
+    EXPECT_THROW((Index<Person, int>(people, Move(populated), ByBirthYear)), std::invalid_argument);
 }
 
 TEST(Benchmark, MeasurementsAndCsv) {

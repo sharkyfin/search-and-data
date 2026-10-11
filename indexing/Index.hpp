@@ -7,21 +7,7 @@
 #include "core/ICollectible.hpp"
 #include "sequences/ArraySequence.hpp"
 #include "dictionaries/IDictionary.hpp"
-#include "dictionaries/SortedDictionary.hpp"
-#include "dictionaries/TreeDictionary.hpp"
-#include "dictionaries/HashTable.hpp"
 #include "indexing/RecordId.hpp"
-#include "indexing/IndexTypes.hpp"
-
-template <class K, class V>
-UniquePtr<IDictionary<K, V>> MakeDictionary(IndexKind kind) {
-    switch (kind) {
-        case IndexKind::Sorted: return MakeUnique<SortedDictionary<K, V>>();
-        case IndexKind::Tree: return MakeUnique<TreeDictionary<K, V>>();
-        case IndexKind::Hash: return MakeUnique<HashTable<K, V>>();
-    }
-    throw std::invalid_argument("Неизвестный словарь индекса.");
-}
 
 template <class Record, class Key>
 class Index {
@@ -31,8 +17,12 @@ private:
 
 public:
     template <class Selector>
-    Index(const ICollectible<Record>& source, IndexKind kind, Selector select)
-        : records(source), entries(MakeDictionary<Key, ArraySequence<RecordId>>(kind)) {
+    Index(const ICollectible<Record>& source,
+          UniquePtr<IDictionary<Key, ArraySequence<RecordId>>> dictionary, Selector select)
+        : records(source), entries(Move(dictionary)) {
+        if (!entries || !entries->IsEmpty()) {
+            throw std::invalid_argument("Индексу нужен пустой словарь.");
+        }
         for (int position = 0; position < records.GetCount(); ++position) {
             const Key key = select(records.Get(position));
             ArraySequence<RecordId>* matches = entries->Find(key);

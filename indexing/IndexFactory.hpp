@@ -7,7 +7,9 @@
 #include "sequences/ArraySequence.hpp"
 #include "sequences/SortedArraySequence.hpp"
 #include "sets/BinaryTreeSet.hpp"
-#include "indexing/Index.hpp"
+#include "dictionaries/SortedDictionary.hpp"
+#include "dictionaries/TreeDictionary.hpp"
+#include "dictionaries/HashTable.hpp"
 #include "indexing/IndexTypes.hpp"
 #include "domain/Person.hpp"
 
@@ -60,9 +62,14 @@ inline UniquePtr<ICollectible<Person>> MakePersonSource(
         case SourceKind::SortedDictionary:
         case SourceKind::TreeDictionary:
         case SourceKind::HashTable: {
-            const IndexKind kind = source == SourceKind::SortedDictionary ? IndexKind::Sorted
-                : source == SourceKind::TreeDictionary ? IndexKind::Tree : IndexKind::Hash;
-            auto dictionary = MakeDictionary<int, Person>(kind);
+            UniquePtr<IDictionary<int, Person>> dictionary;
+            if (source == SourceKind::SortedDictionary) {
+                dictionary = MakeUnique<SortedDictionary<int, Person>>();
+            } else if (source == SourceKind::TreeDictionary) {
+                dictionary = MakeUnique<TreeDictionary<int, Person>>();
+            } else {
+                dictionary = MakeUnique<HashTable<int, Person>>();
+            }
             auto enumerator = people.GetEnumerator();
             while (enumerator->MoveNext()) {
                 const Person& person = enumerator->CurrentRef();
@@ -75,11 +82,4 @@ inline UniquePtr<ICollectible<Person>> MakePersonSource(
         }
     }
     throw std::invalid_argument("Неизвестный источник записей.");
-}
-
-template <class Key, class Selector>
-UniquePtr<Index<Person, Key>> MakePersonIndex(
-    const ICollectible<Person>& people, SourceKind source, IndexKind kind, Selector select) {
-    auto records = MakePersonSource(people, source);
-    return MakeUnique<Index<Person, Key>>(*records, kind, select);
 }
