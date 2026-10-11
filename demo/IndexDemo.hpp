@@ -2,7 +2,6 @@
 
 #include <iomanip>
 #include <iostream>
-#include <type_traits>
 
 #include "benchmark/Benchmark.hpp"
 #include "benchmark/CsvExporter.hpp"
@@ -82,9 +81,7 @@ inline void RunIndexDemo() {
               << std::fixed << std::setprecision(3);
     for (int size : sizes) {
         const auto benchmarkPeople = GeneratePeople(size, 42);
-        const auto run = [&](const char* field, auto select, const auto& missingKey) {
-            auto results = CompareIndexes<Person, std::decay_t<decltype(missingKey)>>(
-                benchmarkPeople, select, missingKey);
+        const auto printResults = [&](const char* field, ArraySequence<Measurement> results) {
             std::cout << "\n" << field << ": " << size << " записей, "
                       << results.Get(0).keys << " ключей\n"
                       << std::left << std::setw(18) << "Index" << std::setw(12) << "Order"
@@ -102,8 +99,9 @@ inline void RunIndexDemo() {
             }
             std::cout << std::flush;
         };
-        run("birthYear", ByBirthYear, 0);
-        run("lastName", ByLastName, std::string("Missing"));
+        printResults("birthYear", CompareIndexes<Person, int>(benchmarkPeople, ByBirthYear, 0));
+        printResults("lastName", CompareIndexes<Person, std::string>(
+            benchmarkPeople, ByLastName, std::string("Missing")));
     }
     ExportMeasurements(measurements, "benchmark.csv");
     std::cout << "\nCSV: benchmark.csv. ok = проверено, timeout = незавершённый прогон.\n";

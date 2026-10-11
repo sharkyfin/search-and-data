@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include "DefaultDelete.hpp"
 #include "PointerOperations.hpp"
 
@@ -135,7 +137,7 @@ public:
 };
 
 template <class T, class Deleter>
-bool operator==(const UniquePtr<T, Deleter>& ptr, decltype(nullptr)) noexcept {
+bool operator==(const UniquePtr<T, Deleter>& ptr, std::nullptr_t) noexcept {
     return ptr.get() == nullptr;
 }
 

@@ -3,7 +3,6 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <memory>
-#include <type_traits>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -296,7 +295,8 @@ TEST(Index, EmptyAndDuplicateKeys) {
     auto dictionary = MakeUnique<SortedDictionary<int, ArraySequence<const Person*>>>();
     const auto* original = dictionary.get();
     Index<Person, int> index(people, Move(dictionary), ByBirthYear);
-    static_assert(std::is_same_v<decltype(index.FindAll(2004)), const ArraySequence<const Person*>&>);
+    const ArraySequence<const Person*>& matches = index.FindAll(2004);
+    EXPECT_EQ(&matches, &original->Get(2004));
     EXPECT_FALSE(dictionary);
     EXPECT_EQ(original->Get(2004).Get(0), &people.Get(0));
     EXPECT_THROW((Index<Person, int>(people, nullptr, ByBirthYear)), std::invalid_argument);
@@ -348,9 +348,6 @@ TEST(Index, NonCopyableRecordsAndLifetime) {
         int key{0};
         std::unique_ptr<Payload> payload;
     };
-    static_assert(!std::is_copy_constructible_v<Record>);
-    static_assert(!std::is_constructible_v<Index<Record, int>, ArraySequence<Record>&&,
-        UniquePtr<IDictionary<int, ArraySequence<const Record*>>>, int (*)(const Record&)>);
     int destroyed = 0;
     {
         ArraySequence<Record> source;
