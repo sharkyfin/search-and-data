@@ -8,8 +8,6 @@
 #include "sequences/ArraySequence.hpp"
 #include "dictionaries/IDictionary.hpp"
 
-// Источник живёт дольше индекса и не изменяется, включая перемещение и сортировку.
-// Индекс не владеет записями; результаты действуют до его уничтожения или перемещения.
 template <class Record, class Key>
 class Index {
 private:

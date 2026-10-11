@@ -88,7 +88,6 @@ ArraySequence<Measurement> CompareIndexes(
                 if (index->GetKeyCount() != keys || !index->FindAll(missingKey).IsEmpty()) {
                     throw std::runtime_error("Неверное число ключей или результат поиска отсутствующего ключа.");
                 }
-                // Один полный проход по группам: проверка не входит во время поиска.
                 if (reference) {
                     auto entries = reference->GetEntriesEnumerator();
                     int compared = 0;
@@ -116,7 +115,6 @@ ArraySequence<Measurement> CompareIndexes(
             }
             measurements.Append(row);
         };
-        // Первый завершённый индекс служит эталоном для остальных на том же источнике.
         measure("HashTable", [&] { return MakeUnique<HashTable<Key, ArraySequence<const Record*>, Hasher>>(hash); });
         measure("TreeDictionary", [] { return MakeUnique<TreeDictionary<Key, ArraySequence<const Record*>>>(); });
         measure("SortedDictionary", [] { return MakeUnique<SortedDictionary<Key, ArraySequence<const Record*>>>(); });
