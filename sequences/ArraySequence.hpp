@@ -41,6 +41,8 @@ private:
 public:
     ArraySequence() = default;
 
+    ArraySequence(DynamicArray<T>&& source) : values(Move(source)) {}
+
     ArraySequence(const ICollectible<T>& source) {
         values.Reserve(source.GetCount());
         auto enumerator = source.GetEnumerator();

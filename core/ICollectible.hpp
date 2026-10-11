@@ -8,6 +8,7 @@ class ICollectible {
 public:
     virtual ~ICollectible() = default;
     virtual int GetCount() const = 0;
+    // Ссылки на элементы действуют, пока коллекция существует и не изменяется.
     virtual UniquePtr<IEnumerator<T>> GetEnumerator() const = 0;
 
     bool IsEmpty() const {

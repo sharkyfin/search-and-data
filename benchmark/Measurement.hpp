@@ -2,11 +2,11 @@
 
 #include <string>
 
-#include "indexing/IndexTypes.hpp"
-
 struct Measurement {
-    IndexKind kind;
+    std::string field;
+    std::string algorithm;
     std::string order;
+    std::string status;
     int records{0};
     int keys{0};
     int queries{0};

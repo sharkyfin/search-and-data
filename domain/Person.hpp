@@ -5,6 +5,7 @@
 #include <string>
 
 #include "sequences/ArraySequence.hpp"
+#include "core/Pair.hpp"
 
 struct Person {
     int id{0};
@@ -16,6 +17,9 @@ struct Person {
         return id < other.id;
     }
 };
+
+inline const Person& GetPerson(const Person& person) { return person; }
+inline const Person& GetPerson(const Pair<int, Person>& entry) { return entry.value; }
 
 inline std::string ByLastName(const Person& person) {
     return person.lastName;

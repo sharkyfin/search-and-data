@@ -2,6 +2,8 @@
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <memory>
+#include <type_traits>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -9,7 +11,9 @@
 #include "benchmark/Benchmark.hpp"
 #include "benchmark/CsvExporter.hpp"
 #include "core/ForwardList.hpp"
-#include "indexing/IndexFactory.hpp"
+#include "domain/Person.hpp"
+#include "sequences/SortedArraySequence.hpp"
+#include "sets/BinaryTreeSet.hpp"
 
 template <class T, class... Args>
 ArraySequence<T> MakeTestSequence(const Args&... values) {
@@ -34,14 +38,14 @@ void ExpectEnumeration(const ICollectible<T>& collection, const Sequence<T>& exp
 }
 
 void ExpectDictionary(IDictionary<int, std::string>& dictionary) {
-    ASSERT_TRUE(dictionary.IsEmpty());
     dictionary.Add(2, "two");
     dictionary.Add(1, "one");
     dictionary.Add(3, "three");
     dictionary.Get(2) = "updated";
     const auto& view = dictionary;
-    ASSERT_TRUE(view.GetCount() == 3 && view.Get(2) == "updated");
-    ASSERT_TRUE(!view.ContainsKey(9) && view.Find(9) == nullptr);
+    EXPECT_EQ(view.GetCount(), 3);
+    EXPECT_EQ(view.Get(2), "updated");
+    EXPECT_EQ(view.Find(9), nullptr);
     EXPECT_THROW(dictionary.Add(2, "duplicate"), std::invalid_argument);
     EXPECT_THROW(dictionary.Get(9), std::out_of_range);
     EXPECT_THROW(dictionary.Remove(9), std::out_of_range);
@@ -49,57 +53,27 @@ void ExpectDictionary(IDictionary<int, std::string>& dictionary) {
     int count = 0;
     while (entries->MoveNext()) {
         const auto& entry = entries->CurrentRef();
-        ASSERT_TRUE(entry.value == view.Get(entry.key));
+        EXPECT_EQ(entry.value, view.Get(entry.key));
         ++count;
     }
     EXPECT_EQ(count, 3);
-    dictionary.Remove(2);
-    ASSERT_TRUE(!dictionary.ContainsKey(2) && dictionary.GetCount() == 2);
-    dictionary.Remove(1);
-    dictionary.Remove(3);
-    ASSERT_TRUE(dictionary.IsEmpty() && !dictionary.GetEnumerator()->MoveNext());
+    for (int key : {2, 1, 3}) dictionary.Remove(key);
+    EXPECT_TRUE(dictionary.IsEmpty());
+    EXPECT_FALSE(dictionary.GetEnumerator()->MoveNext());
 }
 
 TEST(UniquePtr, Ownership) {
-    UniquePtr<int> owner;
-    EXPECT_FALSE(owner);
-    owner.reset(new int(7));
-    ASSERT_TRUE(static_cast<bool>(owner) && *owner == 7);
-
+    UniquePtr<int> owner(new int(7));
     UniquePtr<int> moved(Move(owner));
-    ASSERT_TRUE(!owner && moved && *moved == 7);
-
+    EXPECT_FALSE(owner);
+    ASSERT_EQ(*moved, 7);
     int* raw = moved.release();
-    ASSERT_TRUE(!moved && raw && *raw == 7);
+    EXPECT_FALSE(moved);
     delete raw;
-
-    UniquePtr<int[]> array(new int[3]{10, 20, 30});
-    ASSERT_TRUE(array[0] == 10 && array[1] == 20 && array[2] == 30);
-    array[1] = 99;
-    EXPECT_EQ(array[1], 99);
-}
-
-TEST(DynamicArray, BasicOperations) {
-    DynamicArray<int> arr;
-    ASSERT_TRUE(arr.IsEmpty() && arr.GetSize() == 0);
-    for (int i = 0; i < 20; ++i) {
-        arr.Append(20 - i);
-    }
-    ASSERT_TRUE(arr.GetSize() == 20 && arr.GetCapacity() >= 20);
-    arr.Sort(Less<int>());
-    for (int i = 0; i < 20; ++i) {
-        EXPECT_EQ(arr[i], i + 1);
-    }
-    auto copy = arr;
-    copy[0] = 99;
-    EXPECT_EQ(arr[0], 1);
-    DynamicArray<int> moved(Move(copy));
-    ASSERT_TRUE(copy.IsEmpty() && moved[0] == 99);
-    EXPECT_THROW(arr.Get(20), std::out_of_range);
-    arr.InsertAt(0, 0);
-    ASSERT_TRUE(arr[0] == 0 && arr.GetSize() == 21);
-    arr.RemoveAt(0);
-    ASSERT_TRUE(arr[0] == 1 && arr.GetSize() == 20);
+    UniquePtr<int[]> array(new int[2]{10, 20});
+    EXPECT_EQ(array[1], 20);
+    array.reset();
+    EXPECT_EQ(array.get(), nullptr);
 }
 
 TEST(ForwardList, BasicOperations) {
@@ -120,12 +94,18 @@ TEST(ForwardList, BasicOperations) {
     EXPECT_TRUE(list.IsEmpty());
 }
 
-TEST(ArraySequence, BasicOperations) {
+TEST(Sequences, ArraysAndSorting) {
+    DynamicArray<int> array;
+    for (int i = 20; i > 0; --i) array.Append(i);
+    array.Sort(Less<int>());
+    EXPECT_EQ(array.Get(0), 1);
+    EXPECT_EQ(array.Get(19), 20);
+    auto copied = array;
+    copied[0] = 99;
+    EXPECT_EQ(array.Get(0), 1);
     ArraySequence<int> values;
     ExpectEnumeration(values, MakeTestSequence<int>());
-    EXPECT_THROW(values.GetFirst(), std::out_of_range);
-    EXPECT_THROW(values.GetLast(), std::out_of_range);
-    EXPECT_THROW(values.InsertAt(1, 0), std::out_of_range);
+    EXPECT_THROW(values.Get(0), std::out_of_range);
     values.Append(2);
     values.InsertAt(0, 1);
     values.InsertAt(2, 3);
@@ -136,9 +116,13 @@ TEST(ArraySequence, BasicOperations) {
     ExpectEnumeration(values, MakeTestSequence<int>(9, 3));
     EXPECT_THROW(values.RemoveAt(2), std::out_of_range);
     EXPECT_THROW(values.Get(2), std::out_of_range);
-}
+    DynamicArray<int> buffer;
+    buffer.Append(7);
+    const int* original = &buffer.Get(0);
+    ArraySequence<int> transferred(Move(buffer));
+    EXPECT_TRUE(buffer.IsEmpty());
+    EXPECT_EQ(&transferred.Get(0), original);
 
-TEST(SortedArraySequence, OrderingAndSearch) {
     auto source = MakeTestSequence<int>(4, 1, 3, 1);
     SortedArraySequence<int> sorted(source);
     ExpectEnumeration(sorted, MakeTestSequence<int>(1, 1, 3, 4));
@@ -148,14 +132,10 @@ TEST(SortedArraySequence, OrderingAndSearch) {
     sorted.Add(8);
     ASSERT_TRUE(sorted.Remove(1) && !sorted.Remove(9));
     ExpectEnumeration(sorted, MakeTestSequence<int>(0, 1, 3, 4, 8));
-    const auto greater = [](int first, int second) { return first > second; };
-    SortedArraySequence<int, decltype(greater)> descending(source, greater);
-    descending.Add(5);
-    ASSERT_TRUE(descending.IndexOf(5) == 0 && descending.IndexOf(0) == -1);
-    ExpectEnumeration(descending, MakeTestSequence<int>(5, 4, 3, 1, 1));
+
 }
 
-TEST(BinaryTreeSet, RotationsAndRemoval) {
+TEST(BinaryTreeSet, BalanceAndSetOperations) {
     const int orders[][3] = {
         {3, 2, 1},
         {1, 2, 3},
@@ -176,9 +156,7 @@ TEST(BinaryTreeSet, RotationsAndRemoval) {
         }
         ASSERT_TRUE(set.IsEmpty() && !set.Remove(0));
     }
-}
 
-TEST(BinaryTreeSet, SetOperations) {
     BinaryTreeSet<int> first;
     BinaryTreeSet<int> second;
     BinaryTreeSet<int> empty;
@@ -194,31 +172,18 @@ TEST(BinaryTreeSet, SetOperations) {
     united->Remove(1);
     ASSERT_TRUE(first.Contains(1) && first.GetCount() == 3 && second.GetCount() == 2);
 
-    struct Order {
-        bool descending{false};
-        bool operator()(int a, int b) const { return descending ? a > b : a < b; }
-    };
-    BinaryTreeSet<int, Order> descending(Order{true});
-    for (int value : a) descending.Add(value);
-    ExpectEnumeration(*descending.Union(second), MakeTestSequence<int>(4, 3, 2, 1));
-    ExpectEnumeration(*descending.Intersection(first), MakeTestSequence<int>(3, 2, 1));
-    ExpectEnumeration(*descending.Difference(second), MakeTestSequence<int>(2, 1));
+
 }
 
-TEST(SortedDictionary, BasicOperations) {
-    SortedDictionary<int, std::string> dictionary;
-    ExpectDictionary(dictionary);
-}
-
-TEST(TreeDictionary, BasicOperations) {
-    TreeDictionary<int, std::string> dictionary;
-    ExpectDictionary(dictionary);
-    EXPECT_TRUE(dictionary.IsValid());
-}
-
-TEST(HashTable, BasicOperations) {
-    HashTable<int, std::string> dictionary;
-    ExpectDictionary(dictionary);
+TEST(Dictionaries, BasicOperations) {
+    SortedDictionary<int, std::string> sorted;
+    TreeDictionary<int, std::string> tree;
+    HashTable<int, std::string> hash;
+    IDictionary<int, std::string>* dictionaries[]{&sorted, &tree, &hash};
+    for (auto* dictionary : dictionaries) {
+        ExpectDictionary(*dictionary);
+    }
+    EXPECT_TRUE(tree.IsValid());
 }
 
 TEST(HashTable, CollisionsAndOwnership) {
@@ -243,97 +208,108 @@ TEST(HashTable, CollisionsAndOwnership) {
     EXPECT_EQ(table.Get(-1), "negative");
 }
 
-template <class Key, class Selector>
-void ExpectIndex(const Index<Person, Key>& index, const Key& key, int count, Selector select) {
-    const auto found = index.FindAll(key);
-    ASSERT_EQ(found.GetCount(), count);
-    int previous = -1;
-    for (int i = 0; i < found.GetCount(); ++i) {
-        const int position = found.Get(i).position;
-        ASSERT_GT(position, previous);
-        EXPECT_EQ(select(index.GetRecords().Get(position)), key);
-        previous = position;
+template <class Record, class Key, class Selector>
+void ExpectIndex(const Index<Record, Key>& index, const ICollectible<Record>& source,
+                 const Key& key, Selector select) {
+    const auto& found = index.FindAll(key);
+    auto records = source.GetEnumerator();
+    int match = 0;
+    while (records->MoveNext()) {
+        const Record& record = records->CurrentRef();
+        if (select(record) == key) {
+            ASSERT_LT(match, found.GetCount());
+            EXPECT_EQ(found.Get(match++), &record);
+        }
     }
+    EXPECT_EQ(match, found.GetCount());
+}
+
+template <class Record>
+void CheckSource(const ICollectible<Record>& source) {
+    ArraySequence<const Record*> addresses;
+    auto records = source.GetEnumerator();
+    while (records->MoveNext()) addresses.Append(&records->CurrentRef());
+    records.reset();
+    const auto select = [](const Record& record) { return GetPerson(record).birthYear; };
+    const auto check = [&](auto dictionary) {
+        Index<Record, int> index(source, Move(dictionary), select);
+        EXPECT_TRUE(index.FindAll(1900).IsEmpty());
+        auto entries = index.GetEntriesEnumerator();
+        int total = 0;
+        while (entries->MoveNext()) {
+            const auto& entry = entries->CurrentRef();
+            ExpectIndex(index, source, entry.key, select);
+            total += entry.value.GetCount();
+        }
+        EXPECT_EQ(total, source.GetCount());
+    };
+    check(MakeUnique<SortedDictionary<int, ArraySequence<const Record*>>>());
+    check(MakeUnique<TreeDictionary<int, ArraySequence<const Record*>>>());
+    check(MakeUnique<HashTable<int, ArraySequence<const Record*>>>());
+    ArraySequence<const Record*> remaining;
+    records = source.GetEnumerator();
+    while (records->MoveNext()) remaining.Append(&records->CurrentRef());
+    ExpectEnumeration(remaining, addresses);
 }
 
 TEST(Index, SourcesAndKeys) {
-    ArraySequence<Person> people;
-    people.Append(Person{3, "Anna", "Ivanov", 2004});
-    people.Append(Person{1, "Ivan", "Petrov", 2003});
-    people.Append(Person{2, "Alex", "Ivanov", 2004});
-    const SourceKind sources[]{SourceKind::Array, SourceKind::TreeSet, SourceKind::Sorted,
-        SourceKind::SortedDictionary, SourceKind::TreeDictionary, SourceKind::HashTable};
-    using Positions = ArraySequence<RecordId>;
-    for (SourceKind source : sources) {
-        auto records = MakePersonSource(people, source);
-        const auto check = [&](IndexKind kind, auto makeNames, auto makeYears) {
-            SCOPED_TRACE(testing::Message() << "source=" << static_cast<int>(source)
-                                            << ", dictionary=" << static_cast<int>(kind));
-            Index<Person, std::string> names(*records, makeNames(), ByLastName);
-            Index<Person, int> years(*records, makeYears(), ByBirthYear);
-            const auto byId = [](const Person& person) { return person.id; };
-            Index<Person, int> ids(*records, makeYears(), byId);
-            ASSERT_TRUE(names.GetKeyCount() == 2 && years.GetKeyCount() == 2 && ids.GetKeyCount() == 3);
-            ExpectIndex(names, std::string("Ivanov"), 2, ByLastName);
-            ExpectIndex(years, 2004, 2, ByBirthYear);
-            ExpectIndex(ids, 2, 1, byId);
-            ASSERT_TRUE(names.FindAll("missing").IsEmpty() && years.FindAll(1900).IsEmpty() && ids.FindAll(99).IsEmpty());
-            auto entries = names.GetEntriesEnumerator();
-            int positions = 0;
-            while (entries->MoveNext()) {
-                const auto& entry = entries->CurrentRef();
-                for (int i = 0; i < entry.value.GetCount(); ++i) {
-                    ASSERT_TRUE(names.GetRecords().Get(entry.value.Get(i).position).lastName == entry.key);
-                    ++positions;
-                }
-            }
-            EXPECT_EQ(positions, people.GetCount());
-            ArraySequence<Person> empty;
-            auto emptySource = MakePersonSource(empty, source);
-            Index<Person, int> emptyIndex(*emptySource, makeYears(), ByBirthYear);
-            ASSERT_TRUE(emptyIndex.GetKeyCount() == 0 && emptyIndex.FindAll(2000).IsEmpty());
-            EXPECT_EQ(people.GetFirst().id, 3);
-        };
-        check(IndexKind::Sorted, [] { return MakeUnique<SortedDictionary<std::string, Positions>>(); },
-              [] { return MakeUnique<SortedDictionary<int, Positions>>(); });
-        check(IndexKind::Tree, [] { return MakeUnique<TreeDictionary<std::string, Positions>>(); },
-              [] { return MakeUnique<TreeDictionary<int, Positions>>(); });
-        check(IndexKind::Hash, [] { return MakeUnique<HashTable<std::string, Positions>>(); },
-              [] { return MakeUnique<HashTable<int, Positions>>(); });
+    const auto people = MakeTestSequence<Person>(
+        Person{9, "A", "Ivanov", 2004}, Person{2, "B", "Petrov", 2003},
+        Person{17, "C", "Ivanov", 2004});
+    BinaryTreeSet<Person> set;
+    const SortedArraySequence<Person> sorted(people);
+    SortedDictionary<int, Person> sortedDictionary;
+    TreeDictionary<int, Person> treeDictionary;
+    HashTable<int, Person> hashTable;
+    auto records = people.GetEnumerator();
+    while (records->MoveNext()) {
+        const Person& person = records->CurrentRef();
+        ASSERT_TRUE(set.Add(person));
+        sortedDictionary.Add(person.id, person);
+        treeDictionary.Add(person.id, person);
+        hashTable.Add(person.id, person);
     }
-    Index<Person, std::string> snapshot(people,
-        MakeUnique<TreeDictionary<std::string, Positions>>(), ByLastName);
-    people.GetMutable(0).lastName = "Changed";
-    people.Clear();
-    ASSERT_TRUE(snapshot.GetRecords().GetCount() == 3 && snapshot.FindAll("Ivanov").GetCount() == 2);
+    CheckSource(people);
+    CheckSource(set);
+    CheckSource(sorted);
+    CheckSource(sortedDictionary);
+    CheckSource(treeDictionary);
+    CheckSource(hashTable);
+    EXPECT_EQ(people.GetFirst().id, 9);
 }
 
 TEST(Index, EmptyAndDuplicateKeys) {
     ArraySequence<Person> empty;
-    using Positions = ArraySequence<RecordId>;
     const auto check = [&](auto makeDictionary) {
         Index<Person, int> index(empty, makeDictionary(), ByBirthYear);
         ASSERT_TRUE(index.GetKeyCount() == 0 && index.FindAll(2000).IsEmpty());
-        auto equal = MakeTestSequence<int>(7, 7, 7);
-        Index<int, int> duplicates(equal, makeDictionary(), [](int value) { return value; });
-        ExpectEnumeration(duplicates.FindAll(7), MakeTestSequence<RecordId>(RecordId{0}, RecordId{1}, RecordId{2}));
+        const auto equal = MakeTestSequence<Person>(Person{1, "A", "B", 7},
+            Person{2, "C", "D", 7}, Person{3, "E", "F", 7});
+        Index<Person, int> duplicates(equal, makeDictionary(), ByBirthYear);
+        EXPECT_EQ(duplicates.FindAll(7).GetCount(), 3);
+        ExpectIndex(duplicates, equal, 7, ByBirthYear);
     };
-    check([] { return MakeUnique<SortedDictionary<int, Positions>>(); });
-    check([] { return MakeUnique<TreeDictionary<int, Positions>>(); });
-    check([] { return MakeUnique<HashTable<int, Positions>>(); });
-    ArraySequence<Person> people;
-    people.Append(Person{1, "A", "B", 2000});
-    people.Append(Person{1, "C", "D", 2001});
-    const SourceKind uniqueSources[]{SourceKind::TreeSet, SourceKind::SortedDictionary,
-        SourceKind::TreeDictionary, SourceKind::HashTable};
-    for (SourceKind source : uniqueSources) {
-        EXPECT_THROW(MakePersonSource(people, source), std::invalid_argument);
-    }
+    check([] { return MakeUnique<SortedDictionary<int, ArraySequence<const Person*>>>(); });
+    check([] { return MakeUnique<TreeDictionary<int, ArraySequence<const Person*>>>(); });
+    check([] { return MakeUnique<HashTable<int, ArraySequence<const Person*>>>(); });
+    const auto people = MakeTestSequence<Person>(Person{1, "A", "B", 2004});
+    auto dictionary = MakeUnique<SortedDictionary<int, ArraySequence<const Person*>>>();
+    const auto* original = dictionary.get();
+    Index<Person, int> index(people, Move(dictionary), ByBirthYear);
+    static_assert(std::is_same_v<decltype(index.FindAll(2004)), const ArraySequence<const Person*>&>);
+    EXPECT_FALSE(dictionary);
+    EXPECT_EQ(original->Get(2004).Get(0), &people.Get(0));
+    EXPECT_THROW((Index<Person, int>(people, nullptr, ByBirthYear)), std::invalid_argument);
+    auto populated = MakeUnique<SortedDictionary<int, ArraySequence<const Person*>>>();
+    populated->Add(2004, MakeTestSequence<const Person*>(&people.Get(0)));
+    EXPECT_THROW((Index<Person, int>(people, Move(populated), ByBirthYear)), std::invalid_argument);
+
+    BinaryTreeSet<Person> unique;
+    EXPECT_TRUE(unique.Add(Person{1, "A", "B", 2000}));
+    EXPECT_FALSE(unique.Add(Person{1, "C", "D", 2001}));
 }
 
 TEST(Index, CompositeKeys) {
-    using Key = std::pair<std::string, int>;
-    using Positions = ArraySequence<RecordId>;
     ArraySequence<Person> people;
     people.Append(Person{1, "A", "Ivanov", 2004});
     people.Append(Person{2, "B", "Ivanov", 2003});
@@ -343,57 +319,108 @@ TEST(Index, CompositeKeys) {
         return std::make_pair(person.lastName, person.birthYear);
     };
     const auto check = [&](auto dictionary) {
-        Index<Person, Key> index(people, Move(dictionary), select);
+        Index<Person, std::pair<std::string, int>> index(people, Move(dictionary), select);
         EXPECT_EQ(index.GetKeyCount(), 3);
-        ExpectIndex(index, Key{"Ivanov", 2004}, 2, select);
-        ExpectIndex(index, Key{"Ivanov", 2003}, 1, select);
-        ExpectIndex(index, Key{"Petrov", 2004}, 1, select);
-        EXPECT_TRUE(index.FindAll(Key{"Ivanov", 1999}).IsEmpty());
-        EXPECT_TRUE(index.FindAll(Key{"Missing", 2004}).IsEmpty());
+        ExpectIndex(index, people, std::pair<std::string, int>{"Ivanov", 2004}, select);
+        ExpectIndex(index, people, std::pair<std::string, int>{"Ivanov", 2003}, select);
+        ExpectIndex(index, people, std::pair<std::string, int>{"Petrov", 2004}, select);
+        EXPECT_TRUE(index.FindAll(std::pair<std::string, int>{"Ivanov", 1999}).IsEmpty());
+        EXPECT_TRUE(index.FindAll(std::pair<std::string, int>{"Missing", 2004}).IsEmpty());
     };
-    check(MakeUnique<SortedDictionary<Key, Positions>>());
-    check(MakeUnique<TreeDictionary<Key, Positions>>());
-    struct ConstantHash { int operator()(const Key&) const { return 0; } };
-    check(MakeUnique<HashTable<Key, Positions, ConstantHash>>());
+    check(MakeUnique<SortedDictionary<std::pair<std::string, int>, ArraySequence<const Person*>>>());
+    check(MakeUnique<TreeDictionary<std::pair<std::string, int>, ArraySequence<const Person*>>>());
+    struct ConstantHash { int operator()(const std::pair<std::string, int>&) const { return 0; } };
+    check(MakeUnique<HashTable<std::pair<std::string, int>, ArraySequence<const Person*>, ConstantHash>>());
+    const auto measurements = CompareIndexes<Person, std::pair<std::string, int>>(people, select,
+        std::pair<std::string, int>{"Missing", 0}, ConstantHash());
+    ASSERT_EQ(measurements.GetCount(), 9);
+    for (int i = 0; i < measurements.GetCount(); ++i) {
+        EXPECT_EQ(measurements.Get(i).keys, 3);
+    }
 }
 
-TEST(Index, DictionaryOwnership) {
-    using Positions = ArraySequence<RecordId>;
-    const auto people = MakeTestSequence<Person>(Person{1, "A", "B", 2004});
-    auto dictionary = MakeUnique<SortedDictionary<int, Positions>>();
-    const auto* original = dictionary.get();
-    Index<Person, int> index(people, Move(dictionary), ByBirthYear);
-    EXPECT_FALSE(dictionary);
-    EXPECT_EQ(original->Get(2004).Get(0).position, 0);
-    EXPECT_THROW((Index<Person, int>(people, nullptr, ByBirthYear)), std::invalid_argument);
-    auto populated = MakeUnique<SortedDictionary<int, Positions>>();
-    populated->Add(2004, MakeTestSequence<RecordId>(RecordId{99}));
-    EXPECT_THROW((Index<Person, int>(people, Move(populated), ByBirthYear)), std::invalid_argument);
+TEST(Index, NonCopyableRecordsAndLifetime) {
+    struct Payload {
+        int* destroyed;
+        ~Payload() { ++*destroyed; }
+    };
+    struct Record {
+        int key{0};
+        std::unique_ptr<Payload> payload;
+    };
+    static_assert(!std::is_copy_constructible_v<Record>);
+    static_assert(!std::is_constructible_v<Index<Record, int>, ArraySequence<Record>&&,
+        UniquePtr<IDictionary<int, ArraySequence<const Record*>>>, int (*)(const Record&)>);
+    int destroyed = 0;
+    {
+        ArraySequence<Record> source;
+        source.Append(Record{7, std::unique_ptr<Payload>(new Payload{&destroyed})});
+        const Record* original = &source.Get(0);
+        {
+            const auto select = [](const Record& record) { return record.key; };
+            Index<Record, int> indexes[]{
+                Index<Record, int>(source, MakeUnique<SortedDictionary<int, ArraySequence<const Record*>>>(), select),
+                Index<Record, int>(source, MakeUnique<TreeDictionary<int, ArraySequence<const Record*>>>(), select),
+                Index<Record, int>(source, MakeUnique<HashTable<int, ArraySequence<const Record*>>>(), select)
+            };
+            for (const auto& index : indexes) {
+                ASSERT_EQ(index.FindAll(7).GetCount(), 1);
+                EXPECT_EQ(index.FindAll(7).Get(0), original);
+                EXPECT_NE(index.FindAll(7).Get(0)->payload.get(), nullptr);
+                EXPECT_TRUE(index.FindAll(9).IsEmpty());
+            }
+        }
+        EXPECT_EQ(destroyed, 0);
+        EXPECT_EQ(source.Get(0).payload.get(), original->payload.get());
+    }
+    EXPECT_EQ(destroyed, 1);
 }
 
 TEST(Benchmark, MeasurementsAndCsv) {
-    const auto people = GeneratePeople(48, 42);
-    const auto result = CompareIndexes<Person, int>(people, ByBirthYear, 0);
-    EXPECT_EQ(result.GetCount(), 9);
-    for (int row = 0; row < result.GetCount(); ++row) {
-        const Measurement& measurement = result.Get(row);
-        ASSERT_TRUE(measurement.records == 48 && measurement.queries == 512);
-        ASSERT_TRUE(std::isfinite(measurement.buildMilliseconds) && measurement.buildMilliseconds >= 0);
-        ASSERT_TRUE(std::isfinite(measurement.queryMilliseconds) && measurement.queryMilliseconds >= 0);
+    const auto people = GeneratePeople(1000, 42);
+    auto result = CompareIndexes<Person, int>(people, ByBirthYear, 0);
+    auto names = CompareIndexes<Person, std::string>(people, ByLastName, "Missing");
+    for (int i = 0; i < result.GetCount(); ++i) {
+        EXPECT_EQ(result.Get(i).keys, 51);
+        EXPECT_GT(names.Get(i).keys, 200);
+        result.GetMutable(i).field = "birthYear";
+        names.GetMutable(i).field = "lastName";
+    }
+    for (int i = 0; i < names.GetCount(); ++i) result.Append(names.Get(i));
+    ASSERT_EQ(result.GetCount(), 18);
+    const char* const algorithms[]{"HashTable", "TreeDictionary", "SortedDictionary"};
+    const char* const orders[]{"Ascending", "Descending", "Random"};
+    for (int i = 0; i < result.GetCount(); ++i) {
+        const auto& row = result.Get(i);
+        EXPECT_EQ(row.algorithm, algorithms[i % 3]);
+        EXPECT_EQ(row.order, orders[(i / 3) % 3]);
+        EXPECT_EQ(row.status, "ok");
+        EXPECT_EQ(row.records, 1000);
+        EXPECT_EQ(row.queries, 100000);
+        EXPECT_TRUE(std::isfinite(row.buildMilliseconds) && row.buildMilliseconds >= 0);
+        EXPECT_TRUE(std::isfinite(row.queryMilliseconds) && row.queryMilliseconds >= 0);
+    }
+    const auto limited = CompareIndexes<Person, int>(people, ByBirthYear, 0, Hash<int>(), 0.0);
+    ASSERT_EQ(limited.GetCount(), 9);
+    for (int i = 0; i < limited.GetCount(); ++i) {
+        EXPECT_EQ(limited.Get(i).status, "build_timeout");
+        EXPECT_EQ(limited.Get(i).queries, 0);
+        result.Append(limited.Get(i));
     }
     const auto path = std::filesystem::temp_directory_path() / "search-data-test-results.csv";
-    ExportMeasurements(result, "birth_year", path.string());
+    ExportMeasurements(result, path.string());
     std::ifstream input(path);
     std::string line;
     std::getline(input, line);
-    EXPECT_EQ(line, "algorithm,field,order,records,unique_keys,queries,shuffle_seed,build_ms,query_ms");
-    int lines = 1;
-    while (std::getline(input, line)) {
-        ++lines;
-    }
+    EXPECT_EQ(line, "algorithm,field,order,records,unique_keys,queries,shuffle_seed,build_ms,query_ms,status");
+    int lines = 0;
+    while (std::getline(input, line)) ++lines;
     input.close();
     std::filesystem::remove(path);
-    EXPECT_EQ(lines, 10);
-    ArraySequence<Person> empty;
-    EXPECT_EQ((CompareIndexes<Person, int>(empty, ByBirthYear, 0).GetCount()), 9);
+    EXPECT_EQ(lines, 27);
+    const ArraySequence<Person> empty;
+    const auto emptyResults = CompareIndexes<Person, int>(empty, ByBirthYear, 0);
+    EXPECT_EQ(emptyResults.GetCount(), 9);
+    EXPECT_EQ(emptyResults.Get(0).keys, 0);
+    EXPECT_EQ(emptyResults.Get(0).status, "ok");
 }

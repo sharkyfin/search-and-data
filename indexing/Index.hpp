@@ -7,50 +7,51 @@
 #include "core/ICollectible.hpp"
 #include "sequences/ArraySequence.hpp"
 #include "dictionaries/IDictionary.hpp"
-#include "indexing/RecordId.hpp"
 
+// Источник живёт дольше индекса и не изменяется, включая перемещение и сортировку.
+// Индекс не владеет записями; результаты действуют до его уничтожения или перемещения.
 template <class Record, class Key>
 class Index {
 private:
-    ArraySequence<Record> records;
-    UniquePtr<IDictionary<Key, ArraySequence<RecordId>>> entries;
+    UniquePtr<IDictionary<Key, ArraySequence<const Record*>>> entries;
 
 public:
     template <class Selector>
     Index(const ICollectible<Record>& source,
-          UniquePtr<IDictionary<Key, ArraySequence<RecordId>>> dictionary, Selector select)
-        : records(source), entries(Move(dictionary)) {
+          UniquePtr<IDictionary<Key, ArraySequence<const Record*>>> dictionary, Selector select)
+        : entries(Move(dictionary)) {
         if (!entries || !entries->IsEmpty()) {
             throw std::invalid_argument("Индексу нужен пустой словарь.");
         }
-        for (int position = 0; position < records.GetCount(); ++position) {
-            const Key key = select(records.Get(position));
-            ArraySequence<RecordId>* matches = entries->Find(key);
-            if (matches) {
-                matches->Append(RecordId{position});
-            } else {
-                ArraySequence<RecordId> positions;
-                positions.Append(RecordId{position});
-                entries->Add(key, positions);
+        auto enumerator = source.GetEnumerator();
+        while (enumerator->MoveNext()) {
+            const Record* record = &enumerator->CurrentRef();
+            const Key key = select(*record);
+            auto* matches = entries->Find(key);
+            if (!matches) {
+                entries->Add(key, {});
+                matches = entries->Find(key);
             }
+            matches->Append(record);
         }
     }
 
-    const ArraySequence<Record>& GetRecords() const {
-        return records;
-    }
+    template <class Selector>
+    Index(const ICollectible<Record>&&,
+          UniquePtr<IDictionary<Key, ArraySequence<const Record*>>>, Selector) = delete;
 
     int GetKeyCount() const {
         return entries->GetCount();
     }
 
-    UniquePtr<IEnumerator<Pair<Key, ArraySequence<RecordId>>>> GetEntriesEnumerator() const {
+    UniquePtr<IEnumerator<Pair<Key, ArraySequence<const Record*>>>> GetEntriesEnumerator() const {
         return entries->GetEnumerator();
     }
 
-    ArraySequence<RecordId> FindAll(const Key& key) const {
-        const IDictionary<Key, ArraySequence<RecordId>>& dictionary = *entries;
-        const ArraySequence<RecordId>* matches = dictionary.Find(key);
-        return matches ? *matches : ArraySequence<RecordId>();
+    const ArraySequence<const Record*>& FindAll(const Key& key) const {
+        const IDictionary<Key, ArraySequence<const Record*>>& dictionary = *entries;
+        const auto* matches = dictionary.Find(key);
+        static const ArraySequence<const Record*> empty;
+        return matches ? *matches : empty;
     }
 };

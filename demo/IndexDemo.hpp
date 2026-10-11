@@ -2,19 +2,53 @@
 
 #include <iomanip>
 #include <iostream>
+#include <type_traits>
 
 #include "benchmark/Benchmark.hpp"
 #include "benchmark/CsvExporter.hpp"
-#include "indexing/IndexFactory.hpp"
+#include "domain/Person.hpp"
+#include "sequences/SortedArraySequence.hpp"
+#include "sets/BinaryTreeSet.hpp"
 
-inline void PrintRecords(const ICollectible<Person>& records) {
+template <class Record>
+void PrintRecords(const ICollectible<Record>& records) {
     auto entries = records.GetEnumerator();
-    int position = 0;
     while (entries->MoveNext()) {
-        const Person& person = entries->CurrentRef();
-        std::cout << "  " << position++ << " | ID=" << person.id << " | "
+        const Person& person = GetPerson(entries->CurrentRef());
+        std::cout << "  ID=" << person.id << " | "
                   << person.firstName << ' ' << person.lastName << " | " << person.birthYear << '\n';
     }
+}
+
+template <class Record>
+void ShowSource(const char* name, const ICollectible<Record>& source) {
+    std::cout << "\nИсточник: " << name << '\n';
+    PrintRecords(source);
+    const auto showIndex = [&](const char* name, auto dictionary) {
+        Index<Record, std::string> index(source, Move(dictionary), [](const Record& record) {
+            return GetPerson(record).lastName;
+        });
+        std::cout << "  Индекс: " << name << " (фамилия -> записи)\n";
+        auto entries = index.GetEntriesEnumerator();
+        while (entries->MoveNext()) {
+            const auto& entry = entries->CurrentRef();
+            std::cout << "    " << entry.key << " -> [";
+            for (int j = 0; j < entry.value.GetCount(); ++j) {
+                if (j) std::cout << ", ";
+                std::cout << GetPerson(*entry.value.Get(j)).id;
+            }
+            std::cout << "]\n";
+        }
+        const auto& matches = index.FindAll("Иванов");
+        std::cout << "    Поиск Иванов: ID записей =";
+        for (int j = 0; j < matches.GetCount(); ++j) {
+            std::cout << ' ' << GetPerson(*matches.Get(j)).id;
+        }
+        std::cout << '\n';
+    };
+    showIndex("SortedDictionary", MakeUnique<SortedDictionary<std::string, ArraySequence<const Record*>>>());
+    showIndex("TreeDictionary", MakeUnique<TreeDictionary<std::string, ArraySequence<const Record*>>>());
+    showIndex("HashTable", MakeUnique<HashTable<std::string, ArraySequence<const Record*>>>());
 }
 
 inline void RunIndexDemo() {
@@ -22,63 +56,55 @@ inline void RunIndexDemo() {
     people.Append(Person{9, "Анна", "Иванов", 2004});
     people.Append(Person{2, "Иван", "Петров", 2003});
     people.Append(Person{17, "Алексей", "Иванов", 2004});
-    std::cout << "Исходные записи заданы в ArraySequence<Person>:\n";
-    PrintRecords(people);
+    BinaryTreeSet<Person> set;
+    const SortedArraySequence<Person> sorted(people);
+    SortedDictionary<int, Person> sortedDictionary;
+    TreeDictionary<int, Person> treeDictionary;
+    HashTable<int, Person> hashTable;
+    auto records = people.GetEnumerator();
+    while (records->MoveNext()) {
+        const Person& person = records->CurrentRef();
+        set.Add(person);
+        sortedDictionary.Add(person.id, person);
+        treeDictionary.Add(person.id, person);
+        hashTable.Add(person.id, person);
+    }
+    ShowSource("ArraySequence", people);
+    ShowSource("BinaryTreeSet", set);
+    ShowSource("SortedArraySequence", sorted);
+    ShowSource("SortedDictionary (ID -> Person)", sortedDictionary);
+    ShowSource("TreeDictionary (ID -> Person)", treeDictionary);
+    ShowSource("HashTable (ID -> Person)", hashTable);
 
-    const SourceKind sources[]{SourceKind::Array, SourceKind::TreeSet, SourceKind::Sorted,
-        SourceKind::SortedDictionary, SourceKind::TreeDictionary, SourceKind::HashTable};
-    const char* const sourceNames[]{"ArraySequence", "BinaryTreeSet", "SortedArraySequence",
-        "SortedDictionary", "TreeDictionary", "HashTable"};
-    using Positions = ArraySequence<RecordId>;
-    std::cout << "\nКаждый источник создаётся из исходных записей. Индекс копирует его в снимок.\n";
-    for (int i = 0; i < 6; ++i) {
-        auto source = MakePersonSource(people, sources[i]);
-        std::cout << "\nИсточник: " << sourceNames[i];
-        if (i >= 3) std::cout << " (ID -> Person)";
-        std::cout << "\nПорядок записей и позиции в снимке:\n";
-        PrintRecords(*source);
-        const auto showIndex = [&](IndexKind kind, auto dictionary) {
-            Index<Person, std::string> index(*source, Move(dictionary), ByLastName);
-            std::cout << "  Индекс: " << GetIndexName(kind) << " (фамилия -> позиции)\n";
-            auto entries = index.GetEntriesEnumerator();
-            while (entries->MoveNext()) {
-                const auto& entry = entries->CurrentRef();
-                std::cout << "    " << entry.key << " -> [";
-                for (int j = 0; j < entry.value.GetCount(); ++j) {
-                    if (j) std::cout << ", ";
-                    std::cout << entry.value.Get(j).position;
-                }
-                std::cout << "]\n";
+    const int sizes[]{1000, 10000, 100000, 1000000};
+    ArraySequence<Measurement> measurements;
+    std::cout << "\nБенчмарки: 100 000 запросов, лимит 5 с на прогон. Время в мс.\n"
+              << std::fixed << std::setprecision(3);
+    for (int size : sizes) {
+        const auto benchmarkPeople = GeneratePeople(size, 42);
+        const auto run = [&](const char* field, auto select, const auto& missingKey) {
+            auto results = CompareIndexes<Person, std::decay_t<decltype(missingKey)>>(
+                benchmarkPeople, select, missingKey);
+            std::cout << "\n" << field << ": " << size << " записей, "
+                      << results.Get(0).keys << " ключей\n"
+                      << std::left << std::setw(18) << "Index" << std::setw(12) << "Order"
+                      << std::right << std::setw(12) << "Build, ms" << std::setw(12) << "Query, ms"
+                      << "  Status\n";
+            for (int i = 0; i < results.GetCount(); ++i) {
+                auto& row = results.GetMutable(i);
+                row.field = field;
+                std::cout << std::left << std::setw(18) << row.algorithm << std::setw(12) << row.order
+                          << std::right << std::setw(12) << row.buildMilliseconds;
+                if (row.status == "build_timeout") std::cout << std::setw(12) << "-";
+                else std::cout << std::setw(12) << row.queryMilliseconds;
+                std::cout << "  " << row.status << '\n';
+                measurements.Append(row);
             }
-            const auto matches = index.FindAll("Иванов");
-            std::cout << "    Поиск Иванов: ID записей =";
-            for (int j = 0; j < matches.GetCount(); ++j) {
-                std::cout << ' ' << index.GetRecords().Get(matches.Get(j).position).id;
-            }
-            std::cout << '\n';
+            std::cout << std::flush;
         };
-        showIndex(IndexKind::Sorted, MakeUnique<SortedDictionary<std::string, Positions>>());
-        showIndex(IndexKind::Tree, MakeUnique<TreeDictionary<std::string, Positions>>());
-        showIndex(IndexKind::Hash, MakeUnique<HashTable<std::string, Positions>>());
+        run("birthYear", ByBirthYear, 0);
+        run("lastName", ByLastName, std::string("Missing"));
     }
-
-    const auto benchmarkPeople = GeneratePeople(10000, 42);
-    const auto results = CompareIndexes<Person, int>(benchmarkPeople, ByBirthYear, 0);
-    ExportMeasurements(results, "birth_year", "benchmark.csv");
-    const auto& measurement = results.Get(0);
-    std::cout << "\nБенчмарки индексации по году рождения\n"
-              << measurement.records << " записей, " << measurement.keys << " ключ, "
-              << measurement.queries << " запросов. Время в миллисекундах.\n\n"
-              << std::left << std::setw(18) << "Index" << std::setw(12) << "Order"
-              << std::right << std::setw(12) << "Build, ms" << std::setw(12) << "Query, ms" << '\n'
-              << std::string(54, '-') << '\n'
-              << std::fixed << std::setprecision(6);
-    for (int i = 0; i < results.GetCount(); ++i) {
-        const auto& result = results.Get(i);
-        std::cout << std::left << std::setw(18) << GetIndexName(result.kind)
-                  << std::setw(12) << result.order << std::right
-                  << std::setw(12) << result.buildMilliseconds
-                  << std::setw(12) << result.queryMilliseconds << '\n';
-    }
-    std::cout << "\nЗамеры сохранены в benchmark.csv\n";
+    ExportMeasurements(measurements, "benchmark.csv");
+    std::cout << "\nCSV: benchmark.csv. ok = проверено, timeout = незавершённый прогон.\n";
 }
