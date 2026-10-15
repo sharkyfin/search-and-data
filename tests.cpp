@@ -171,7 +171,15 @@ TEST(BinaryTreeSet, BalanceAndSetOperations) {
     united->Remove(1);
     ASSERT_TRUE(first.Contains(1) && first.GetCount() == 3 && second.GetCount() == 2);
 
-
+    BinaryTreeSet<int, bool (*)(int, int)> descending([](int x, int y) { return x > y; });
+    for (int value : a) descending.Add(value);
+    ExpectEnumeration(descending, MakeTestSequence<int>(3, 2, 1));
+    EXPECT_TRUE(descending.Contains(1) && descending.Contains(3));
+    EXPECT_FALSE(descending.Contains(9));
+    EXPECT_TRUE(descending.Remove(2));
+    EXPECT_FALSE(descending.Remove(9));
+    ExpectEnumeration(descending, MakeTestSequence<int>(3, 1));
+    EXPECT_TRUE(descending.IsValid());
 }
 
 TEST(Dictionaries, BasicOperations) {

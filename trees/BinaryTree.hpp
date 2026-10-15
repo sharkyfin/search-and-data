@@ -4,9 +4,9 @@
 
 #include "pointers/PointerOperations.hpp"
 #include "pointers/UniquePtr.hpp"
+#include "core/ForwardList.hpp"
 #include "core/Functional.hpp"
 #include "core/IEnumerator.hpp"
-#include "sequences/DynamicArray.hpp"
 
 template <class T, class Compare = Less<T>>
 class BinaryTree {
@@ -103,17 +103,16 @@ private:
         return minimum;
     }
 
-    template <class Key, class Order>
-    bool Erase(UniquePtr<Node>& node, const Key& key, const Order& order) {
+    template <class Key>
+    bool Erase(UniquePtr<Node>& node, const Key& key) {
         if (!node) {
             return false;
         }
-        const int direction = order(key, node->value);
         bool removed = true;
-        if (direction < 0) {
-            removed = Erase(node->left, key, order);
-        } else if (direction > 0) {
-            removed = Erase(node->right, key, order);
+        if (compare(key, node->value)) {
+            removed = Erase(node->left, key);
+        } else if (compare(node->value, key)) {
+            removed = Erase(node->right, key);
         } else if (!node->left) {
             auto next = Move(node->right);
             node = Move(next);
@@ -130,15 +129,17 @@ private:
         return removed;
     }
 
-    template <class Key, class Order>
-    Node* FindNode(const Key& key, const Order& order) const {
+    template <class Key>
+    Node* FindNode(const Key& key) const {
         Node* node = root.get();
         while (node) {
-            const int direction = order(key, node->value);
-            if (direction == 0) {
+            if (compare(key, node->value)) {
+                node = node->left.get();
+            } else if (compare(node->value, key)) {
+                node = node->right.get();
+            } else {
                 return node;
             }
-            node = direction < 0 ? node->left.get() : node->right.get();
         }
         return nullptr;
     }
@@ -163,12 +164,12 @@ private:
 
     class Enumerator : public IEnumerator<T> {
     private:
-        DynamicArray<const Node*> pending;
+        ForwardList<const Node*> pending;
         const Node* current{nullptr};
 
         void PushLeft(const Node* node) {
             while (node) {
-                pending.Append(node);
+                pending.PushFront(node);
                 node = node->left.get();
             }
         }
@@ -183,8 +184,8 @@ private:
                 current = nullptr;
                 return false;
             }
-            current = pending.Back();
-            pending.PopBack();
+            current = *pending.begin();
+            pending.PopFront();
             PushLeft(current->right.get());
             return true;
         }
@@ -194,14 +195,6 @@ private:
                 throw std::logic_error("Enumerator has no current element.");
             }
             return current->value;
-        }
-    };
-
-    struct DefaultOrder {
-        const Compare& compare;
-
-        int operator()(const T& first, const T& second) const noexcept {
-            return compare(first, second) ? -1 : (compare(second, first) ? 1 : 0);
         }
     };
 
@@ -238,36 +231,24 @@ public:
         return true;
     }
 
-    bool Remove(const T& value) {
-        return RemoveBy(value, DefaultOrder{compare});
-    }
-
-    T* Find(const T& value) {
-        return FindBy(value, DefaultOrder{compare});
-    }
-
-    const T* Find(const T& value) const {
-        return FindBy(value, DefaultOrder{compare});
-    }
-
-    template <class Key, class Order>
-    bool RemoveBy(const Key& key, const Order& order) {
-        if (!Erase(root, key, order)) {
+    template <class Key>
+    bool Remove(const Key& key) {
+        if (!Erase(root, key)) {
             return false;
         }
         --count;
         return true;
     }
 
-    template <class Key, class Order>
-    T* FindBy(const Key& key, const Order& order) {
-        Node* node = FindNode(key, order);
+    template <class Key>
+    T* Find(const Key& key) {
+        Node* node = FindNode(key);
         return node ? &node->value : nullptr;
     }
 
-    template <class Key, class Order>
-    const T* FindBy(const Key& key, const Order& order) const {
-        const Node* node = FindNode(key, order);
+    template <class Key>
+    const T* Find(const Key& key) const {
+        const Node* node = FindNode(key);
         return node ? &node->value : nullptr;
     }
 

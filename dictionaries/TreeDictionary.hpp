@@ -13,13 +13,17 @@ private:
         bool operator()(const Pair<K, V>& first, const Pair<K, V>& second) const noexcept {
             return first.key < second.key;
         }
+
+        bool operator()(const K& key, const Pair<K, V>& entry) const noexcept {
+            return key < entry.key;
+        }
+
+        bool operator()(const Pair<K, V>& entry, const K& key) const noexcept {
+            return entry.key < key;
+        }
     };
 
     BinaryTree<Pair<K, V>, PairLess> tree;
-
-    static int Order(const K& key, const Pair<K, V>& entry) noexcept {
-        return key < entry.key ? -1 : (entry.key < key ? 1 : 0);
-    }
 
 public:
     TreeDictionary() = default;
@@ -35,18 +39,18 @@ public:
     }
 
     void Remove(const K& key) override {
-        if (!tree.RemoveBy(key, Order)) {
+        if (!tree.Remove(key)) {
             throw std::out_of_range("Key was not found.");
         }
     }
 
     V* Find(const K& key) override {
-        Pair<K, V>* entry = tree.FindBy(key, Order);
+        Pair<K, V>* entry = tree.Find(key);
         return entry ? &entry->value : nullptr;
     }
 
     const V* Find(const K& key) const override {
-        const Pair<K, V>* entry = tree.FindBy(key, Order);
+        const Pair<K, V>* entry = tree.Find(key);
         return entry ? &entry->value : nullptr;
     }
 
