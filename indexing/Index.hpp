@@ -4,7 +4,7 @@
 
 #include "pointers/PointerOperations.hpp"
 #include "pointers/UniquePtr.hpp"
-#include "core/ICollectible.hpp"
+#include "core/IEnumerable.hpp"
 #include "sequences/ArraySequence.hpp"
 #include "dictionaries/IDictionary.hpp"
 
@@ -15,7 +15,7 @@ private:
 
 public:
     template <class Selector>
-    Index(const ICollectible<Record>& source,
+    Index(const IEnumerable<Record>& source,
           UniquePtr<IDictionary<Key, ArraySequence<const Record*>>> dictionary, Selector select)
         : entries(Move(dictionary)) {
         if (!entries || !entries->IsEmpty()) {
@@ -35,7 +35,7 @@ public:
     }
 
     template <class Selector>
-    Index(const ICollectible<Record>&&,
+    Index(const IEnumerable<Record>&&,
           UniquePtr<IDictionary<Key, ArraySequence<const Record*>>>, Selector) = delete;
 
     int GetKeyCount() const {

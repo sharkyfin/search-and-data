@@ -1,14 +1,12 @@
 #pragma once
 
-#include "pointers/UniquePtr.hpp"
-#include "core/IEnumerator.hpp"
+#include "core/IEnumerable.hpp"
 
 template <class T>
-class ICollectible {
+class ICollectible : public IEnumerable<T> {
 public:
-    virtual ~ICollectible() = default;
+    ~ICollectible() override = default;
     virtual int GetCount() const = 0;
-    virtual UniquePtr<IEnumerator<T>> GetEnumerator() const = 0;
 
     bool IsEmpty() const {
         return GetCount() == 0;

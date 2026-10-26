@@ -13,11 +13,11 @@ inline void ExportMeasurements(const Sequence<Measurement>& measurements,
     if (!output) {
         throw std::runtime_error("Не удалось открыть CSV для записи.");
     }
-    output << "algorithm,field,order,records,unique_keys,queries,shuffle_seed,build_ms,query_ms,status\n";
+    output << "source,algorithm,field,input_order,records,unique_keys,queries,shuffle_seed,build_ms,query_ms,status\n";
     output.precision(9);
     for (int index = 0; index < measurements.GetCount(); ++index) {
         const Measurement& row = measurements.Get(index);
-        output << row.algorithm << ',' << row.field << ',' << row.order << ','
+        output << row.source << ',' << row.algorithm << ',' << row.field << ',' << row.order << ','
                << row.records << ',' << row.keys << ',' << row.queries << ",42,"
                << row.buildMilliseconds << ',' << row.queryMilliseconds << ',' << row.status << '\n';
     }

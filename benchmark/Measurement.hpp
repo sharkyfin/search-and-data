@@ -3,6 +3,7 @@
 #include <string>
 
 struct Measurement {
+    std::string source;
     std::string field;
     std::string algorithm;
     std::string order;

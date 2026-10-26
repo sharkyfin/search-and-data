@@ -1,5 +1,5 @@
 #include "demo/IndexDemo.hpp"
 
 int main() {
-    RunIndexDemo();
+    return RunIndexDemo();
 }

@@ -13,6 +13,8 @@ private:
     Compare compare;
 
 public:
+    SortedArraySequence() = default;
+
     SortedArraySequence(const ICollectible<T>& source, Compare compare = Compare())
         : values(source), compare(Move(compare)) {
         values.Sort(this->compare);
