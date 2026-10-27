@@ -1,15 +1,20 @@
 #pragma once
 
+#include <iomanip>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 
-#include "pointers/PointerOperations.hpp"
-#include "pointers/UniquePtr.hpp"
 #include "core/ForwardList.hpp"
 #include "core/Functional.hpp"
-#include "core/IEnumerator.hpp"
+#include "core/ICollectible.hpp"
+#include "core/IEnumerable.hpp"
+#include "core/Text.hpp"
+
+enum class Traversal { KLP, KPL, LPK, LKP, PLK, PKL, BreadthFirst };
 
 template <class T, class Compare = Less<T>>
-class BinaryTree {
+class BinaryTree : public ICollectible<T> {
 private:
     struct Node {
         T value;
@@ -17,242 +22,138 @@ private:
         UniquePtr<Node> right;
         int height{1};
 
-        Node(T val)
-            : value(Move(val)) {}
+        Node(T val);
     };
 
     UniquePtr<Node> root;
     int count{0};
     Compare compare;
+    bool allowDuplicates{false};
+    int version{0};
 
-    static int Height(const UniquePtr<Node>& node) noexcept {
-        return node ? node->height : 0;
-    }
+    static int Height(const UniquePtr<Node>& node) noexcept;
 
-    static void Update(Node& node) noexcept {
-        const int lh = Height(node.left);
-        const int rh = Height(node.right);
-        node.height = 1 + (lh > rh ? lh : rh);
-    }
+    static void Update(Node& node) noexcept;
 
-    static void RotateLeft(UniquePtr<Node>& node) {
-        auto next = Move(node->right);
-        node->right = Move(next->left);
-        Update(*node);
-        next->left = Move(node);
-        Update(*next);
-        node = Move(next);
-    }
+    static void RotateLeft(UniquePtr<Node>& node);
 
-    static void RotateRight(UniquePtr<Node>& node) {
-        auto next = Move(node->left);
-        node->left = Move(next->right);
-        Update(*node);
-        next->right = Move(node);
-        Update(*next);
-        node = Move(next);
-    }
+    static void RotateRight(UniquePtr<Node>& node);
 
-    static void Balance(UniquePtr<Node>& node) {
-        if (!node) {
-            return;
-        }
-        const int lh = Height(node->left);
-        const int rh = Height(node->right);
-        node->height = 1 + (lh > rh ? lh : rh);
-        const int difference = lh - rh;
-        if (difference > 1) {
-            if (Height(node->left->left) < Height(node->left->right)) {
-                RotateLeft(node->left);
-            }
-            RotateRight(node);
-        } else if (difference < -1) {
-            if (Height(node->right->right) < Height(node->right->left)) {
-                RotateRight(node->right);
-            }
-            RotateLeft(node);
-        }
-    }
+    static void Balance(UniquePtr<Node>& node);
+
+    void Invalidate() noexcept;
 
     template <class U>
-    bool Insert(UniquePtr<Node>& node, U&& value) {
-        if (!node) {
-            node = MakeUnique<Node>(static_cast<U&&>(value));
-            return true;
-        }
-        bool inserted = false;
-        if (compare(value, node->value)) {
-            inserted = Insert(node->left, static_cast<U&&>(value));
-        } else if (compare(node->value, value)) {
-            inserted = Insert(node->right, static_cast<U&&>(value));
-        } else {
-            return false;
-        }
-        Balance(node);
-        return inserted;
-    }
+    bool Insert(UniquePtr<Node>& node, U&& value);
 
-    static UniquePtr<Node> ExtractMinimum(UniquePtr<Node>& node) {
-        if (!node->left) {
-            auto minimum = Move(node);
-            node = Move(minimum->right);
-            return minimum;
-        }
-        auto minimum = ExtractMinimum(node->left);
-        Balance(node);
-        return minimum;
-    }
+    static UniquePtr<Node> ExtractMinimum(UniquePtr<Node>& node);
+
+    static UniquePtr<Node> ExtractMaximum(UniquePtr<Node>& node);
 
     template <class Key>
-    bool Erase(UniquePtr<Node>& node, const Key& key) {
-        if (!node) {
-            return false;
-        }
-        bool removed = true;
-        if (compare(key, node->value)) {
-            removed = Erase(node->left, key);
-        } else if (compare(node->value, key)) {
-            removed = Erase(node->right, key);
-        } else if (!node->left) {
-            auto next = Move(node->right);
-            node = Move(next);
-        } else if (!node->right) {
-            auto next = Move(node->left);
-            node = Move(next);
-        } else {
-            auto next = ExtractMinimum(node->right);
-            next->left = Move(node->left);
-            next->right = Move(node->right);
-            node = Move(next);
-        }
-        Balance(node);
-        return removed;
-    }
+    bool Erase(UniquePtr<Node>& node, const Key& key);
 
     template <class Key>
-    Node* FindNode(const Key& key) const {
-        Node* node = root.get();
-        while (node) {
-            if (compare(key, node->value)) {
-                node = node->left.get();
-            } else if (compare(node->value, key)) {
-                node = node->right.get();
-            } else {
-                return node;
-            }
-        }
-        return nullptr;
-    }
+    Node* FindNode(const Key& key) const;
 
-    int Check(const Node* node, const T* lower, const T* upper, int& visited) const {
-        if (!node) {
-            return 0;
-        }
-        if ((lower && !compare(*lower, node->value)) || (upper && !compare(node->value, *upper))) {
-            return -1;
-        }
-        ++visited;
-        const int left = Check(node->left.get(), lower, &node->value, visited);
-        const int right = Check(node->right.get(), &node->value, upper, visited);
-        const int diff = left > right ? left - right : right - left;
-        const int maxH = left > right ? left : right;
-        if (left < 0 || right < 0 || diff > 1 || node->height != 1 + maxH) {
-            return -1;
-        }
-        return node->height;
-    }
+    static UniquePtr<Node> Clone(const Node* node, int& copied);
+
+    int Check(const Node* node, const T* lower, const T* upper, int& visited) const;
+
+    bool Same(const Node* first, const Node* second) const;
+
+    bool ContainsNode(const Node* node, const Node* candidate) const;
+
+    static const T& Follow(const Node* node, const std::string& path);
 
     class Enumerator : public IEnumerator<T> {
     private:
-        ForwardList<const Node*> pending;
+        struct Frame { const Node* node; int stage; };
+        const BinaryTree& owner;
+        int version;
+        Traversal order;
+        ForwardList<Frame> pending;
         const Node* current{nullptr};
 
-        void PushLeft(const Node* node) {
-            while (node) {
-                pending.PushFront(node);
-                node = node->left.get();
-            }
-        }
+        void CheckVersion() const;
 
     public:
-        Enumerator(const Node* root) {
-            PushLeft(root);
-        }
+        Enumerator(const BinaryTree& owner, Traversal order);
 
-        bool MoveNext() override {
-            if (pending.IsEmpty()) {
-                current = nullptr;
-                return false;
-            }
-            current = *pending.begin();
-            pending.PopFront();
-            PushLeft(current->right.get());
-            return true;
-        }
+        bool MoveNext() override;
 
-        const T& CurrentRef() const override {
-            if (!current) {
-                throw std::logic_error("Enumerator has no current element.");
-            }
-            return current->value;
-        }
+        const T& CurrentRef() const override;
     };
 
 public:
-    BinaryTree(Compare compare = Compare())
-        : compare(Move(compare)) {}
+    BinaryTree(Compare compare = Compare(), bool allowDuplicates = false);
 
-    BinaryTree(const BinaryTree&) = delete;
-    BinaryTree& operator=(const BinaryTree&) = delete;
+    BinaryTree(const BinaryTree& other);
 
-    int GetCount() const noexcept {
-        return count;
-    }
+    BinaryTree(BinaryTree&& other);
 
-    int GetHeight() const noexcept {
-        return Height(root);
-    }
+    BinaryTree& operator=(const BinaryTree& other);
 
-    const Compare& GetCompare() const noexcept {
-        return compare;
-    }
+    BinaryTree& operator=(BinaryTree&& other);
 
-    bool IsValid() const {
-        int visited = 0;
-        return Check(root.get(), nullptr, nullptr, visited) >= 0 && visited == count;
-    }
+    void Swap(BinaryTree& other);
+
+    int GetCount() const override;
+    int GetHeight() const noexcept;
+    const Compare& GetCompare() const noexcept;
+
+    bool IsValid() const;
 
     template <class U>
-    bool Add(U&& value) {
-        if (!Insert(root, static_cast<U&&>(value))) {
-            return false;
-        }
-        ++count;
-        return true;
-    }
+    bool Add(U&& value);
 
     template <class Key>
-    bool Remove(const Key& key) {
-        if (!Erase(root, key)) {
-            return false;
-        }
-        --count;
-        return true;
-    }
+    bool Remove(const Key& key);
 
     template <class Key>
-    T* Find(const Key& key) {
-        Node* node = FindNode(key);
-        return node ? &node->value : nullptr;
-    }
+    T* Find(const Key& key);
 
     template <class Key>
-    const T* Find(const Key& key) const {
-        const Node* node = FindNode(key);
-        return node ? &node->value : nullptr;
-    }
+    const T* Find(const Key& key) const;
 
-    UniquePtr<IEnumerator<T>> GetEnumerator() const {
-        return MakeUnique<Enumerator>(root.get());
-    }
+    void Clear() noexcept;
+
+    const T& Maximum() const;
+
+    T PopMaximum();
+
+    UniquePtr<IEnumerator<T>> GetEnumerator() const override;
+
+    UniquePtr<IEnumerator<T>> GetEnumerator(Traversal order) const;
+
+    template <class Transform>
+    BinaryTree Map(Transform transform, Traversal order = Traversal::LKP) const;
+
+    template <class Predicate>
+    BinaryTree Where(Predicate predicate, Traversal order = Traversal::LKP) const;
+
+    template <class Accumulator, class Function>
+    Accumulator Reduce(Accumulator initial, Function function, Traversal order = Traversal::LKP) const;
+
+    BinaryTree Merge(const IEnumerable<T>& other) const;
+
+    BinaryTree ExtractSubtree(const T& value) const;
+
+    bool ContainsSubtree(const BinaryTree& other) const;
+
+    const T& GetByPath(const std::string& path) const;
+    const T& GetByPath(const T& start, const std::string& path) const;
+
+    template <class Writer>
+    std::string ToString(Writer write) const;
+
+    std::string ToString() const;
+
+    template <class Reader>
+    static BinaryTree FromString(const std::string& text, Reader read,
+        Compare compare = Compare(), bool allowDuplicates = false);
+
+    static BinaryTree FromString(const std::string& text, Compare compare = Compare(), bool allowDuplicates = false);
 };
+
+#include "BinaryTree.tpp"

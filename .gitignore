@@ -1,2 +1,4 @@
 build*/
 benchmark.csv
+benchmark-*.csv
+.DS_Store

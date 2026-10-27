@@ -1,81 +1,60 @@
 #pragma once
 
-#include "pointers/PointerOperations.hpp"
-#include "pointers/UniquePtr.hpp"
-#include "core/Functional.hpp"
 #include "sets/ISet.hpp"
 #include "trees/BinaryTree.hpp"
 
 template <class T, class Compare = Less<T>>
 class BinaryTreeSet : public ISet<T> {
 private:
+    enum class Operation { Union, Intersection, Difference };
     BinaryTree<T, Compare> tree;
 
+    BinaryTreeSet Combine(const ISet<T>& other, Operation operation) const;
+
 public:
-    BinaryTreeSet(Compare compare = Compare())
-        : tree(Move(compare)) {}
+    BinaryTreeSet(Compare compare = Compare());
 
-    int GetCount() const override {
-        return tree.GetCount();
-    }
+    int GetCount() const override;
+    bool Add(const T& value) override;
+    bool Remove(const T& value) override;
+    bool Contains(const T& value) const override;
+    bool IsValid() const;
+    int GetHeight() const;
+    void Clear();
 
-    bool Add(const T& value) override {
-        return tree.Add(value);
-    }
+    UniquePtr<ISet<T>> Union(const ISet<T>& other) const override;
 
-    bool Remove(const T& value) override {
-        return tree.Remove(value);
-    }
+    UniquePtr<ISet<T>> Intersection(const ISet<T>& other) const override;
 
-    bool Contains(const T& value) const override {
-        return tree.Find(value) != nullptr;
-    }
+    UniquePtr<ISet<T>> Difference(const ISet<T>& other) const override;
 
-    UniquePtr<ISet<T>> Union(const ISet<T>& other) const override {
-        auto result = MakeUnique<BinaryTreeSet<T, Compare>>(tree.GetCompare());
-        const ISet<T>* sources[]{this, &other};
-        for (const ISet<T>* source : sources) {
-            auto enumerator = source->GetEnumerator();
-            while (enumerator->MoveNext()) {
-                result->Add(enumerator->CurrentRef());
-            }
-        }
-        return result;
-    }
+    BinaryTreeSet operator|(const ISet<T>& other) const;
+    BinaryTreeSet operator&(const ISet<T>& other) const;
+    BinaryTreeSet operator-(const ISet<T>& other) const;
+    bool operator<=(const ISet<T>& other) const;
+    bool operator==(const ISet<T>& other) const;
+    bool operator!=(const ISet<T>& other) const;
 
-    UniquePtr<ISet<T>> Intersection(const ISet<T>& other) const override {
-        auto result = MakeUnique<BinaryTreeSet<T, Compare>>(tree.GetCompare());
-        auto enumerator = GetEnumerator();
-        while (enumerator->MoveNext()) {
-            const T& value = enumerator->CurrentRef();
-            if (other.Contains(value)) {
-                result->Add(value);
-            }
-        }
-        return result;
-    }
+    template <class Transform>
+    BinaryTreeSet Map(Transform transform) const;
 
-    UniquePtr<ISet<T>> Difference(const ISet<T>& other) const override {
-        auto result = MakeUnique<BinaryTreeSet<T, Compare>>(tree.GetCompare());
-        auto enumerator = GetEnumerator();
-        while (enumerator->MoveNext()) {
-            const T& value = enumerator->CurrentRef();
-            if (!other.Contains(value)) {
-                result->Add(value);
-            }
-        }
-        return result;
-    }
+    template <class Predicate>
+    BinaryTreeSet Where(Predicate predicate) const;
 
-    bool IsValid() const {
-        return tree.IsValid();
-    }
+    template <class Accumulator, class Function>
+    Accumulator Reduce(Accumulator initial, Function function) const;
 
-    int GetHeight() const {
-        return tree.GetHeight();
-    }
+    template <class Writer>
+    std::string ToString(Writer write) const;
 
-    UniquePtr<IEnumerator<T>> GetEnumerator() const override {
-        return tree.GetEnumerator();
-    }
+    std::string ToString() const;
+
+    template <class Reader>
+    static BinaryTreeSet FromString(const std::string& text, Reader read, Compare compare = Compare());
+
+    static BinaryTreeSet FromString(const std::string& text, Compare compare = Compare());
+
+    UniquePtr<IEnumerator<T>> GetEnumerator() const override;
 };
+
+#include "BinaryTreeSet.tpp"

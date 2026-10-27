@@ -94,6 +94,7 @@ public:
     }
 
     void Reserve(int newCapacity) {
+        if (newCapacity < 0) throw std::invalid_argument("Negative capacity.");
         if (newCapacity <= capacity) {
             return;
         }
@@ -106,12 +107,15 @@ public:
     }
 
     void Resize(int newSize, const T& defaultValue = T()) {
+        if (newSize < 0) throw std::invalid_argument("Negative size.");
+        T fill = defaultValue;
         if (newSize > capacity) {
             Reserve(newSize);
         }
         for (int i = count; i < newSize; ++i) {
-            buffer[i] = defaultValue;
+            buffer[i] = fill;
         }
+        for (int i = newSize; i < count; ++i) buffer[i] = T();
         count = newSize;
     }
 
@@ -127,6 +131,7 @@ public:
             throw std::out_of_range("DynamicArray is empty.");
         }
         --count;
+        buffer[count] = T();
     }
 
     void InsertAt(int index, T value) {
@@ -150,11 +155,13 @@ public:
         for (int i = index; i + 1 < count; ++i) {
             buffer[i] = Move(buffer[i + 1]);
         }
-        --count;
+        PopBack();
     }
 
     void Clear() noexcept {
+        buffer.reset();
         count = 0;
+        capacity = 0;
     }
 
     void Swap(DynamicArray& other) noexcept {
@@ -171,5 +178,5 @@ public:
     }
 
     T* begin() noexcept { return buffer.get(); }
-    T* end() noexcept { return buffer.get() + count; }
+    T* end() noexcept { return count == 0 ? buffer.get() : buffer.get() + count; }
 };
